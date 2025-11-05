@@ -15,7 +15,7 @@ from chemprop.data import (
 from chemprop.models import MulticomponentMPNN
 from chemprop.nn import RegressionFFN, ScaleTransform
 from lightning import pytorch as pl
-from lightning.pytorch.callbacks import ModelCheckpoint, StochasticWeightAveraging
+from lightning.pytorch.callbacks import StochasticWeightAveraging
 from lightning.pytorch.loggers import TensorBoardLogger
 
 from utils import load_features
@@ -23,8 +23,9 @@ from utils import load_features
 
 class CheMeleonModel:
     def __init__(self):
-        # looking up smiles from solvent names
-        self.lookup = load_features("smiles")["solvent smiles"].to_dict()
+        # look up things from solvent names
+        self.smiles_lookup = load_features("smiles")["solvent smiles"].to_dict()
+        self.spange_lookup = {name: list(d.values()) for name, d in load_features("spange_descriptors").to_dict('index').items()}
 
         # retrieve model checkpoint, if not present
         ckpt_dir = Path().home() / ".chemprop"
@@ -42,11 +43,18 @@ class CheMeleonModel:
 
     def _get_datapoints(self, X: pd.DataFrame, targets: np.ndarray | None):
         if "SolventB%" in X.columns:  # multisolvent
-            x_d = X[["Residence Time", "Temperature", "SolventB%"]].values
-            smiles = [[self.lookup[a], self.lookup[b]] for a, b in zip(X["SOLVENT A NAME"], X["SOLVENT B NAME"])]
+            x_d = np.concat((
+                X[["Residence Time", "Temperature", "SolventB%"]].values,
+                np.array([self.spange_lookup[a] for a in X["SOLVENT A NAME"]]),
+                np.array([self.spange_lookup[b] for b in X["SOLVENT B NAME"]]),
+            ), axis=1)
+            smiles = [[self.smiles_lookup[a], self.smiles_lookup[b]] for a, b in zip(X["SOLVENT A NAME"], X["SOLVENT B NAME"])]
         else:  # single solvent
-            x_d = X[["Residence Time", "Temperature"]].values
-            smiles = [[self.lookup[name]] for name in X["SOLVENT NAME"]]
+            x_d = np.concat((
+                X[["Residence Time", "Temperature"]].values,
+                np.array([self.spange_lookup[s] for s in X["SOLVENT NAME"]]),
+            ), axis=1)
+            smiles = [[self.smiles_lookup[name]] for name in X["SOLVENT NAME"]]
         all_data = []
         for i in range(len(smiles)):
             sublist = []
