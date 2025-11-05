@@ -15,8 +15,7 @@ from chemprop.data import (
 from chemprop.models import MulticomponentMPNN
 from chemprop.nn import RegressionFFN, ScaleTransform
 from lightning import pytorch as pl
-from lightning.pytorch.callbacks import ModelCheckpoint
-from lightning.pytorch.callbacks.early_stopping import EarlyStopping
+from lightning.pytorch.callbacks import ModelCheckpoint, StochasticWeightAveraging
 from lightning.pytorch.loggers import TensorBoardLogger
 
 from utils import load_features
@@ -66,20 +65,12 @@ class CheMeleonModel:
         # prepare the data
         targets = y_train.values
         all_data = self._get_datapoints(X_train, targets)
-        rng = np.random.default_rng(42)
-        train_indices = rng.choice(np.arange(all_data.shape[0]), int(all_data.shape[0] * 0.80))
-        val_indices = np.array([i for i in range(all_data.shape[0]) if i not in train_indices])
 
-        train_datasets = [MoleculeDataset(all_data[train_indices, i], self.featurizer) for i in range(all_data.shape[1])]
-        val_datasets = [MoleculeDataset(all_data[val_indices, i], self.featurizer) for i in range(all_data.shape[1])]
+        train_datasets = [MoleculeDataset(all_data[:, i], self.featurizer) for i in range(all_data.shape[1])]
         train_mcdset = MulticomponentDataset(train_datasets)
         train_mcdset.cache = True
         X_d_scaler = train_mcdset.normalize_inputs("X_d")
-        val_mcdset = MulticomponentDataset(val_datasets)
-        val_mcdset.cache = True
-        val_mcdset.normalize_inputs("X_d", X_d_scaler)
         train_loader = build_dataloader(train_mcdset, batch_size=32, num_workers=1, persistent_workers=True)
-        val_loader = build_dataloader(val_mcdset, batch_size=32, shuffle=False, num_workers=1, persistent_workers=True)
 
         # define the model
         chemeleon_mp = torch.load(self.mp_path, weights_only=True)
@@ -116,33 +107,21 @@ class CheMeleonModel:
             default_hp_metric=False,
         )
         callbacks = [
-            EarlyStopping(
-                monitor="val_loss",
-                mode="min",
-                verbose=False,
-                patience=3,
-            ),
-            ModelCheckpoint(
-                monitor="val_loss",
-                dirpath=outdir / "checkpoints",
-                save_top_k=1,
-                mode="min",
-            ),
+            StochasticWeightAveraging(
+                swa_lrs=0.001,
+                swa_epoch_start=0.60,
+                annealing_epochs=4,
+            )
         ]
         trainer = pl.Trainer(
-            max_epochs=20,
+            max_epochs=30,
             logger=tensorboard_logger,
             log_every_n_steps=1,
-            enable_checkpointing=True,
+            enable_checkpointing=False,
             check_val_every_n_epoch=1,
             callbacks=callbacks,
         )
-
-        trainer.fit(self.model, train_loader, val_loader)
-        ckpt_path = trainer.checkpoint_callback.best_model_path
-        print(f"Reloading best model from checkpoint file: {ckpt_path}")
-        self.model = self.model.__class__.load_from_checkpoint(ckpt_path)
-        trainer.validate(self.model, val_loader)
+        trainer.fit(self.model, train_loader)
 
     def predict(self, X: pd.DataFrame) -> torch.Tensor:
         all_data = self._get_datapoints(X, None)
