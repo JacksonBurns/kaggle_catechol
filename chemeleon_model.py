@@ -52,10 +52,12 @@ class CheMeleonModel:
         for i in range(len(smiles)):
             sublist = []
             for j in range(len(smiles[i])):
-                if targets is None:
-                    sublist.append(MoleculeDatapoint.from_smi(smiles[i][j], x_d=x_d[i, :]))
-                else:
-                    sublist.append(MoleculeDatapoint.from_smi(smiles[i][j], targets[i, :], x_d=x_d[i, :]))
+                args = {"smi": smiles[i][j]}
+                if targets is not None:
+                    args['y'] = targets[i, :]
+                if j == 0:
+                    args['x_d'] = x_d[i, :]
+                sublist.append(MoleculeDatapoint.from_smi(**args))
             all_data.append(sublist)
         return np.array(all_data)
 
@@ -81,12 +83,19 @@ class CheMeleonModel:
 
         # define the model
         chemeleon_mp = torch.load(self.mp_path, weights_only=True)
-        mp = nn.BondMessagePassing(**chemeleon_mp["hyper_parameters"])
-        mp.load_state_dict(chemeleon_mp["state_dict"])
+        mp_blocks = [
+            nn.BondMessagePassing(**chemeleon_mp["hyper_parameters"])
+            for _ in range(train_mcdset.n_components)
+        ]
+        for block in mp_blocks:
+            block.load_state_dict(chemeleon_mp["state_dict"])
+        mp = nn.MulticomponentMessagePassing(
+            mp_blocks, train_mcdset.n_components, shared=True
+        )
         agg = nn.MeanAggregation()
         ffn = RegressionFFN(
             n_tasks=targets.shape[1],
-            input_dim=mp.output_dim,
+            input_dim=mp.output_dim + X_d_scaler[0].mean_.shape[0],
             hidden_dim=2_048,
             n_layers=1,
             # ensure the nn outputs are always identically equal to 1 in sum
@@ -96,11 +105,11 @@ class CheMeleonModel:
             message_passing=mp,
             agg=agg,
             predictor=ffn,
-            X_d_transform=ScaleTransform.from_standard_scaler(X_d_scaler),
+            X_d_transform=ScaleTransform.from_standard_scaler(X_d_scaler[0]),
         )
 
         # fit the model
-        outdir = "chemprop_output" / datetime.date().strftime("%Y-%d-%m_%H:%M:%S")
+        outdir = Path("chemprop_output") / datetime.now().strftime("%Y-%d-%m_%H-%M-%S")
         tensorboard_logger = TensorBoardLogger(
             outdir,
             name="tensorboard_logs",
@@ -132,8 +141,8 @@ class CheMeleonModel:
         trainer.fit(self.model, train_loader, val_loader)
         ckpt_path = trainer.checkpoint_callback.best_model_path
         print(f"Reloading best model from checkpoint file: {ckpt_path}")
-        mcmpnn = mcmpnn.__class__.load_from_checkpoint(ckpt_path)
-        trainer.validate(mcmpnn, val_loader)
+        self.model = self.model.__class__.load_from_checkpoint(ckpt_path)
+        trainer.validate(self.model, val_loader)
 
     def predict(self, X: pd.DataFrame) -> torch.Tensor:
         all_data = self._get_datapoints(X, None)

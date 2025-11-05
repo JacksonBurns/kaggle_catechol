@@ -23,7 +23,6 @@ if __name__ == "__main__":
                 "target_2": row[1],
                 "target_3": row[2]
             })
-        break
     submission_single_solvent = pd.DataFrame(all_predictions)
     X, Y = load_data("full")
     split_generator = generate_leave_one_ramp_out_splits(X, Y)
@@ -36,7 +35,6 @@ if __name__ == "__main__":
         predictions_np = predictions.detach().cpu().numpy()
         for row_idx, row in enumerate(predictions_np):
             all_predictions.append({"task": 1, "fold": fold_idx, "row": row_idx, "target_1": row[0], "target_2": row[1], "target_3": row[2]})
-        break
     submission_full_data = pd.DataFrame(all_predictions)
     submission = pd.concat([submission_single_solvent, submission_full_data])
     submission = submission.reset_index()
