@@ -46,18 +46,20 @@ class AutGluonModel:
         self.product_2_model.fit(
             ds,
             # presets='best',  # 'extreme',
-            hyperparameters={
-                'MITRA': {'fine_tune': False}  # {'fine_tune': True, 'fine_tune_steps': 10}
-            },
+            # hyperparameters={
+            #     'MITRA': {'fine_tune': False}  # {'fine_tune': True, 'fine_tune_steps': 10}
+            # },
+            fit_strategy="parallel",
             time_limit=60,
         )
         ds = self._get_ds(X_train, y_train[["Product 3"]])
         self.product_3_model.fit(
             ds,
             # presets='best',  # 'extreme',
-            hyperparameters={
-                'MITRA': {'fine_tune': False}  # {'fine_tune': True, 'fine_tune_steps': 10}
-            },
+            # hyperparameters={
+            #     'MITRA': {'fine_tune': False}  # {'fine_tune': True, 'fine_tune_steps': 10}
+            # },
+            fit_strategy="parallel",
             time_limit=60,
         )
 
