@@ -83,7 +83,7 @@ class CustomMLPModel:
             perc = X["SolventB%"].to_numpy()
             X = np.concat((
                 X[["Residence Time", "Temperature"]].values,
-                np.array([self.spange_lookup[a] for a in X["SOLVENT A NAME"]]) * (1 - perc)[:, None],
+                np.array([self.spange_lookup[a] for a in X["SOLVENT A NAME"]]) * (1 - perc)[:, None] + 
                 np.array([self.spange_lookup[b] for b in X["SOLVENT B NAME"]]) * perc[:, None],
             ), axis=1)
         else:  # single solvent
