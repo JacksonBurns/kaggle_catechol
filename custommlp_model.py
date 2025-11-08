@@ -72,10 +72,11 @@ class CustomMLPModel:
 
     def _get_data(self, X: pd.DataFrame):
         if "SolventB%" in X.columns:  # multisolvent
+            perc = X["SolventB%"].to_numpy()
             X = np.concat((
-                X[["Residence Time", "Temperature", "SolventB%"]].values,
-                np.array([self.spange_lookup[a] for a in X["SOLVENT A NAME"]]),
-                np.array([self.spange_lookup[b] for b in X["SOLVENT B NAME"]]),
+                X[["Residence Time", "Temperature"]].values,
+                np.array([self.spange_lookup[a] for a in X["SOLVENT A NAME"]]) * (1 - perc)[:, None],
+                np.array([self.spange_lookup[b] for b in X["SOLVENT B NAME"]]) * perc[:, None],
             ), axis=1)
         else:  # single solvent
             X = np.concat((
@@ -112,7 +113,8 @@ class CustomMLPModel:
             )
         ]
         trainer = pl.Trainer(
-            max_epochs=50,
+            max_epochs=100,
+            gradient_clip_val=1.0,
             logger=tensorboard_logger,
             log_every_n_steps=1,
             enable_checkpointing=False,
