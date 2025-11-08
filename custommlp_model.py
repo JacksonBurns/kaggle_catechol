@@ -17,35 +17,21 @@ class SmallResNetMLP(pl.LightningModule):
     def __init__(self, input_dim, output_dim=1, lr=1e-3):
         super().__init__()
         self.save_hyperparameters()
-        hidden_dim = 32
-
-        # Residual MLP block
-        def res_block(dim_in, dim_out):
-            return nn.Sequential(
-                nn.Linear(dim_in, dim_out),
-                nn.BatchNorm1d(dim_out),
-                nn.ReLU(),
-                nn.Dropout(0.2),
-                nn.Linear(dim_out, dim_out),
-                nn.BatchNorm1d(dim_out),
-            )
-
-        self.bn_in = nn.BatchNorm1d(input_dim)
-        self.fc_in = nn.Linear(input_dim, hidden_dim)
-        self.block1 = res_block(hidden_dim, hidden_dim)
-        self.block2 = res_block(hidden_dim, hidden_dim)
-        self.fc_out = nn.Linear(hidden_dim, output_dim)
-        self.relu = nn.ReLU()
+        self.net = nn.Sequential(
+            nn.BatchNorm1d(input_dim),
+            nn.Linear(input_dim, 64),
+            nn.BatchNorm1d(64),
+            nn.ReLU(),
+            nn.Dropout(0.1),
+            nn.Linear(64, 32),
+            nn.ReLU(),
+            nn.Linear(32, 3),
+        )
         self.log_softmax = nn.LogSoftmax(dim=1)
         self.criterion = nn.KLDivLoss(reduction="batchmean")
 
     def forward(self, x):
-        x = self.bn_in(x)
-        x = self.relu(self.fc_in(x))
-        # Residual connections
-        x = self.relu(x + self.block1(x))
-        x = self.relu(x + self.block2(x))
-        return self.log_softmax(self.fc_out(x))
+        return self.log_softmax(self.net(x))
     
     def predict_step(self, batch):
         x = batch[0]
@@ -69,8 +55,8 @@ class SmallResNetMLP(pl.LightningModule):
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.hparams.lr, weight_decay=1e-4)
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=10)
-        return {"optimizer": optimizer, "lr_scheduler": scheduler}
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=5)
+        return {"optimizer": optimizer, "lr_scheduler": scheduler, "monitor": "train_loss"}
 
 
 class CustomMLPModel:
@@ -121,7 +107,7 @@ class CustomMLPModel:
         callbacks = [
             EarlyStopping(
                 monitor="val_loss",
-                patience=5,
+                patience=10,
             ),
             ModelCheckpoint(
                 outdir / "checkpoints",
