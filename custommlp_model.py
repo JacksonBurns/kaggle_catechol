@@ -5,9 +5,9 @@ import numpy as np
 import pandas as pd
 import torch
 from lightning import pytorch as pl
-from lightning.pytorch.callbacks import StochasticWeightAveraging
+from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 from lightning.pytorch.loggers import TensorBoardLogger
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader, TensorDataset, random_split
 
 from torch import nn
 
@@ -36,9 +36,8 @@ class SmallResNetMLP(pl.LightningModule):
         self.block2 = res_block(hidden_dim, hidden_dim)
         self.fc_out = nn.Linear(hidden_dim, output_dim)
         self.relu = nn.ReLU()
-        self.softmax = nn.Softmax(dim=-1)
-
-        self.criterion = nn.MSELoss()
+        self.log_softmax = nn.LogSoftmax(dim=1)
+        self.criterion = nn.KLDivLoss(reduction="batchmean")
 
     def forward(self, x):
         x = self.bn_in(x)
@@ -46,16 +45,25 @@ class SmallResNetMLP(pl.LightningModule):
         # Residual connections
         x = self.relu(x + self.block1(x))
         x = self.relu(x + self.block2(x))
-        return self.softmax(self.fc_out(x))
+        return self.log_softmax(self.fc_out(x))
     
     def predict_step(self, batch):
         x = batch[0]
-        return self(x)
+        return torch.exp(self(x))
+
+    def validation_step(self, batch, batch_idx):
+        x, y = batch
+        log_prob = self(x)
+        y = torch.clamp(y, min=1e-8)  # avoid log(0)
+        loss = self.criterion(log_prob, y)
+        self.log("val_loss", loss, prog_bar=True)
+        return loss
 
     def training_step(self, batch, batch_idx):
         x, y = batch
-        y_hat = self(x)
-        loss = self.criterion(y_hat, y)
+        log_prob = self(x)
+        y = torch.clamp(y, min=1e-8)  # avoid log(0)
+        loss = self.criterion(log_prob, y)
         self.log("train_loss", loss, prog_bar=True)
         return loss
 
@@ -92,7 +100,12 @@ class CustomMLPModel:
         X = self._get_data(X_train)
 
         dataset = TensorDataset(X, y)
-        train_loader = DataLoader(dataset, batch_size=32, shuffle=True)
+        train_size = int(X.shape[0] * 0.90)
+        g = torch.Generator()
+        g.manual_seed(42)
+        train_dataset, val_dataset = random_split(dataset, (train_size, X.shape[0] - train_size), g)
+        train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
+        val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
 
         # initialize model
         input_dim = X.shape[1]
@@ -106,22 +119,28 @@ class CustomMLPModel:
             default_hp_metric=False,
         )
         callbacks = [
-            StochasticWeightAveraging(
-                swa_lrs=0.001,
-                swa_epoch_start=0.60,
-                annealing_epochs=4,
-            )
+            EarlyStopping(
+                monitor="val_loss",
+                patience=5,
+            ),
+            ModelCheckpoint(
+                outdir / "checkpoints",
+                monitor="val_loss",
+            ),
         ]
         trainer = pl.Trainer(
             max_epochs=100,
             gradient_clip_val=1.0,
             logger=tensorboard_logger,
             log_every_n_steps=1,
-            enable_checkpointing=False,
+            enable_checkpointing=True,
             check_val_every_n_epoch=1,
             callbacks=callbacks,
         )
-        trainer.fit(self.model, train_loader)
+        trainer.fit(self.model, train_loader, val_loader)
+        
+        ckpt_path = trainer.checkpoint_callback.best_model_path
+        self.model = self.model.__class__.load_from_checkpoint(ckpt_path)
 
     def predict(self, X: pd.DataFrame) -> torch.Tensor:
         # prepare the data
