@@ -17,7 +17,7 @@ class SmallResNetMLP(pl.LightningModule):
     def __init__(self, input_dim, output_dim=1, lr=1e-3):
         super().__init__()
         self.save_hyperparameters()
-        hidden_dim = 64
+        hidden_dim = 32
 
         # Residual MLP block
         def res_block(dim_in, dim_out):
@@ -30,6 +30,7 @@ class SmallResNetMLP(pl.LightningModule):
                 nn.BatchNorm1d(dim_out),
             )
 
+        self.bn_in = nn.BatchNorm1d(input_dim)
         self.fc_in = nn.Linear(input_dim, hidden_dim)
         self.block1 = res_block(hidden_dim, hidden_dim)
         self.block2 = res_block(hidden_dim, hidden_dim)
@@ -40,6 +41,7 @@ class SmallResNetMLP(pl.LightningModule):
         self.criterion = nn.MSELoss()
 
     def forward(self, x):
+        x = self.bn_in(x)
         x = self.relu(self.fc_in(x))
         # Residual connections
         x = self.relu(x + self.block1(x))
@@ -110,7 +112,7 @@ class CustomMLPModel:
             )
         ]
         trainer = pl.Trainer(
-            max_epochs=30,
+            max_epochs=50,
             logger=tensorboard_logger,
             log_every_n_steps=1,
             enable_checkpointing=False,
