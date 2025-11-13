@@ -1,7 +1,7 @@
 import pandas as pd
 import tqdm
 
-from custommlp_model import CustomMLPModel
+from autogluon_model import AutGluonModel
 from utils import generate_leave_one_out_splits, generate_leave_one_ramp_out_splits, load_data
 
 if __name__ == "__main__":
@@ -10,7 +10,7 @@ if __name__ == "__main__":
     all_predictions = []
     for fold_idx, split in tqdm.tqdm(enumerate(split_generator)):
         (train_X, train_Y), (test_X, test_Y) = split
-        model = CustomMLPModel()
+        model = AutGluonModel()
         model.train_model(train_X, train_Y)
         predictions = model.predict(test_X)
         predictions_np = predictions.detach().cpu().numpy()
@@ -29,7 +29,7 @@ if __name__ == "__main__":
     all_predictions = []
     for fold_idx, split in tqdm.tqdm(enumerate(split_generator)):
         (train_X, train_Y), (test_X, test_Y) = split
-        model = CustomMLPModel()
+        model = AutGluonModel()
         model.train_model(train_X, train_Y)
         predictions = model.predict(test_X)
         predictions_np = predictions.detach().cpu().numpy()

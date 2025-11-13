@@ -26,10 +26,11 @@ class AutGluonModel:
 
     def _get_ds(self, X: pd.DataFrame, target: pd.DataFrame | None) -> TabularDataset:
         if "SolventB%" in X.columns:  # multisolvent
+            perc = X["SolventB%"].to_numpy()
             features = np.concat((
                 X[["Residence Time", "Temperature", "SolventB%"]].values,
-                np.array([self.feature_lookup[a] for a in X["SOLVENT A NAME"]]),
-                np.array([self.feature_lookup[b] for b in X["SOLVENT B NAME"]]),
+                np.array([self.feature_lookup[a] for a in X["SOLVENT A NAME"]]) * (1 - perc)[:, None] + 
+                np.array([self.feature_lookup[b] for b in X["SOLVENT B NAME"]]) * perc[:, None],
             ), axis=1)
         else:  # single solvent
             features = np.concat((
@@ -45,21 +46,17 @@ class AutGluonModel:
         ds = self._get_ds(X_train, y_train[["Product 2"]])
         self.product_2_model.fit(
             ds,
-            # presets='best',  # 'extreme',
-            # hyperparameters={
-            #     'MITRA': {'fine_tune': False}  # {'fine_tune': True, 'fine_tune_steps': 10}
-            # },
-            fit_strategy="parallel",
+            hyperparameters={
+                'MITRA': {'fine_tune': True, 'fine_tune_steps': 10}
+            },
             time_limit=60,
         )
         ds = self._get_ds(X_train, y_train[["Product 3"]])
         self.product_3_model.fit(
             ds,
-            # presets='best',  # 'extreme',
-            # hyperparameters={
-            #     'MITRA': {'fine_tune': False}  # {'fine_tune': True, 'fine_tune_steps': 10}
-            # },
-            fit_strategy="parallel",
+            hyperparameters={
+                'MITRA': {'fine_tune': True, 'fine_tune_steps': 10}
+            },
             time_limit=60,
         )
 
