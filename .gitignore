@@ -1,2 +1,5 @@
 __pycache__
 chemprop_output
+# other experimental model outputs
+AutogluonModels
+mlp_output
